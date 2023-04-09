@@ -3,6 +3,6 @@
 www.yuque.com/it-coach
 
 介绍:  
-https://www.yuque.com/it-coach/github-readme/reinforcement-learning
+https://www.yuque.com/it-coach/github/reinforcement-learning
 
 
