@@ -1,4 +1,6 @@
-"""Env wrappers
+"""
+jy: UNDO
+Env wrappers
 Note that this file is adapted from `https://pypi.org/project/gym-vec-env` and
 `https://github.com/openai/baselines/blob/master/baselines/common/*wrappers.py`
 """
@@ -29,14 +31,18 @@ __all__ = (
     'Monitor',  # Episode reward and length monitor
 )
 cv2.ocl.setUseOpenCL(False)
+
 # env_id -> env_type
 id2type = dict()
 for _env in gym.envs.registry.all():
-    id2type[_env.id] = _env._entry_point.split(':')[0].rsplit('.', 1)[1]
-
+    #import pdb; pdb.set_trace()
+    id2type[_env.id] = _env.entry_point.split(':')[0].rsplit('.', 1)[1]
+ 
 
 def build_env(env_id, vectorized=False, seed=0, reward_scale=1.0, nenv=0):
-    """Build env based on options"""
+    """
+    Build env based on options
+    """
     env_type = id2type[env_id]
     nenv = nenv or cpu_count() // (1 + (platform == 'darwin'))
     stack = env_type == 'atari'
@@ -534,8 +540,13 @@ class NormalizedActions(gym.ActionWrapper):
         return action
 
 
-def unit_test():
-    env_id = 'CartPole-v0'
+if __name__ == '__main__':
+    #import pdb; pdb.set_trace()
+    #print("env_id --> env_type:\n", id2type)
+
+    # ====================【CartPole-v1】=========================
+    """
+    env_id = 'CartPole-v1'
     unwrapped_env = gym.make(env_id)
     wrapped_env = build_env(env_id, False)
     o = wrapped_env.reset()
@@ -545,7 +556,9 @@ def unit_test():
         a = unwrapped_env.action_space.sample()
         o_, r, done, info = wrapped_env.step(a)
         print('Take action {} get reward {} info {}'.format(a, r, info))
-
+    """
+    # ====================【PongNoFrameskip-v4】=========================
+    
     env_id = 'PongNoFrameskip-v4'
     nenv = 2
     unwrapped_env = gym.make(env_id)
@@ -559,6 +572,4 @@ def unit_test():
         print('Take action {} get reward {} info {}'.format(a, r, info))
 
 
-if __name__ == '__main__':
-    unit_test()
 
