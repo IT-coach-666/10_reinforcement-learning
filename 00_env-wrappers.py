@@ -1,8 +1,7 @@
 """
-jy: UNDO
-Env wrappers
-Note that this file is adapted from `https://pypi.org/project/gym-vec-env` and
-`https://github.com/openai/baselines/blob/master/baselines/common/*wrappers.py`
+Env wrappers, adapted from:
+https://pypi.org/project/gym-vec-env
+https://github.com/openai/baselines/blob/master/baselines/common/*wrappers.py
 """
 from collections import deque
 from functools import partial
@@ -15,20 +14,20 @@ import numpy as np
 from gym import spaces
 
 __all__ = (
-    'build_env',  # build env
-    'TimeLimit',  # Time limit wrapper
-    'NoopResetEnv',  # Run random number of no-ops on reset
-    'FireResetEnv',  # Reset wrapper for envs with fire action
+    'build_env',        # build env
+    'TimeLimit',        # Time limit wrapper
+    'NoopResetEnv',     # Run random number of no-ops on reset
+    'FireResetEnv',     # Reset wrapper for envs with fire action
     'EpisodicLifeEnv',  # end-of-life == end-of-episode wrapper
-    'MaxAndSkipEnv',  # skip frame wrapper
-    'ClipRewardEnv',  # clip reward wrapper
-    'WarpFrame',  # warp observation wrapper
-    'FrameStack',  # stack frame wrapper
-    'LazyFrames',  # lazy store wrapper
-    'RewardScaler',  # reward scale
-    'SubprocVecEnv',  # vectorized env wrapper
-    'VecFrameStack',  # stack frames in vectorized env
-    'Monitor',  # Episode reward and length monitor
+    'MaxAndSkipEnv',    # skip frame wrapper
+    'ClipRewardEnv',    # clip reward wrapper
+    'WarpFrame',        # warp observation wrapper
+    'FrameStack'     ,  # stack frame wrapper
+    'LazyFrames',       # lazy store wrapper
+    'RewardScaler',     # reward scale
+    'SubprocVecEnv',    # vectorized env wrapper
+    'VecFrameStack',    # stack frames in vectorized env
+    'Monitor',          # Episode reward and length monitor
 )
 cv2.ocl.setUseOpenCL(False)
 
@@ -164,7 +163,8 @@ class FireResetEnv(gym.Wrapper):
 class EpisodicLifeEnv(gym.Wrapper):
 
     def __init__(self, env):
-        """Make end-of-life == end-of-episode, but only reset on true game over.
+        """
+        Make end-of-life == end-of-episode, but only reset on true game over.
         Done by DeepMind for the DQN and co. since it helps value estimation.
         """
         super(EpisodicLifeEnv, self).__init__(env)
@@ -186,7 +186,8 @@ class EpisodicLifeEnv(gym.Wrapper):
         return obs, reward, done, info
 
     def reset(self, **kwargs):
-        """Reset only when lives are exhausted.
+        """
+        Reset only when lives are exhausted.
         This way all states are still reachable even though lives are episodic,
         and the learner need not know about any of this behind-the-scenes.
         """
@@ -202,7 +203,9 @@ class EpisodicLifeEnv(gym.Wrapper):
 class MaxAndSkipEnv(gym.Wrapper):
 
     def __init__(self, env, skip=4):
-        """Return only every `skip`-th frame"""
+        """
+        Return only every `skip`-th frame
+        """
         super(MaxAndSkipEnv, self).__init__(env)
         # most recent raw observations (for max pooling across time steps)
         shape = (2, ) + env.observation_space.shape
@@ -237,7 +240,9 @@ class ClipRewardEnv(gym.RewardWrapper):
         super(ClipRewardEnv, self).__init__(env)
 
     def reward(self, reward):
-        """Bin reward to {+1, 0, -1} by its sign."""
+        """
+        Bin reward to {+1, 0, -1} by its sign.
+        """
         return np.sign(reward)
 
 
@@ -265,7 +270,8 @@ class WarpFrame(gym.ObservationWrapper):
 class FrameStack(gym.Wrapper):
 
     def __init__(self, env, k):
-        """Stack k last frames.
+        """
+        Stack k last frames.
         Returns lazy array, which is much more memory efficient.
         See Also `LazyFrames`
         """
@@ -295,7 +301,8 @@ class FrameStack(gym.Wrapper):
 class LazyFrames(object):
 
     def __init__(self, frames):
-        """This object ensures that common frames between the observations are
+        """
+        This object ensures that common frames between the observations are
         only stored once. It exists purely to optimize memory usage which can be
         huge for DQN's 1M frames replay buffers.
 
@@ -325,7 +332,8 @@ class LazyFrames(object):
 
 
 class RewardScaler(gym.RewardWrapper):
-    """Bring rewards to a reasonable scale for PPO.
+    """
+    Bring rewards to a reasonable scale for PPO.
     This is incredibly important and effects performance drastically.
     """
 
@@ -393,7 +401,6 @@ class CloudpickleWrapper(object):
     """
     Uses cloudpickle to serialize contents
     """
-
     def __init__(self, x):
         self.x = x
 
@@ -407,7 +414,6 @@ class CloudpickleWrapper(object):
 
 
 class SubprocVecEnv(object):
-
     def __init__(self, env_fns):
         """
         envs: list of gym environments to run in subprocesses
@@ -439,26 +445,27 @@ class SubprocVecEnv(object):
 
     def _step_async(self, actions):
         """
-            Tell all the environments to start taking a step
-            with the given actions.
-            Call step_wait() to get the results of the step.
-            You should not call this if a step_async run is
-            already pending.
-            """
+        Tell all the environments to start taking a step
+        with the given actions.
+
+        Call step_wait() to get the results of the step.
+        You should not call this if a step_async run is
+        already pending.
+        """
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
         self.waiting = True
 
     def _step_wait(self):
         """
-            Wait for the step taken with step_async().
-            Returns (obs, rews, dones, infos):
-             - obs: an array of observations, or a tuple of
-                    arrays of observations.
-             - rews: an array of rewards
-             - dones: an array of "episode done" booleans
-             - infos: a sequence of info objects
-            """
+        Wait for the step taken with step_async().
+        Returns (obs, rews, dones, infos):
+         - obs: an array of observations, or a tuple of
+                arrays of observations.
+         - rews: an array of rewards
+         - dones: an array of "episode done" booleans
+         - infos: a sequence of info objects
+        """
         results = [remote.recv() for remote in self.remotes]
         self.waiting = False
         obs, rews, dones, infos = zip(*results)
@@ -466,12 +473,12 @@ class SubprocVecEnv(object):
 
     def reset(self):
         """
-            Reset all the environments and return an array of
-            observations, or a tuple of observation arrays.
-            If step_async is still doing work, that work will
-            be cancelled and step_wait() should not be called
-            until step_async() is invoked again.
-            """
+        Reset all the environments and return an array of
+        observations, or a tuple of observation arrays.
+        If step_async is still doing work, that work will
+        be cancelled and step_wait() should not be called
+        until step_async() is invoked again.
+        """
         for remote in self.remotes:
             remote.send(('reset', None))
         return np.stack([remote.recv() for remote in self.remotes])
@@ -545,7 +552,7 @@ if __name__ == '__main__':
     #print("env_id --> env_type:\n", id2type)
 
     # ====================【CartPole-v1】=========================
-    """
+    #"""
     env_id = 'CartPole-v1'
     unwrapped_env = gym.make(env_id)
     wrapped_env = build_env(env_id, False)
@@ -556,9 +563,9 @@ if __name__ == '__main__':
         a = unwrapped_env.action_space.sample()
         o_, r, done, info = wrapped_env.step(a)
         print('Take action {} get reward {} info {}'.format(a, r, info))
-    """
+    #"""
     # ====================【PongNoFrameskip-v4】=========================
-    
+    """
     env_id = 'PongNoFrameskip-v4'
     nenv = 2
     unwrapped_env = gym.make(env_id)
@@ -570,6 +577,5 @@ if __name__ == '__main__':
         a = np.asarray(a, 'int64')
         o_, r, done, info = wrapped_env.step(a)
         print('Take action {} get reward {} info {}'.format(a, r, info))
-
-
+    """
 
