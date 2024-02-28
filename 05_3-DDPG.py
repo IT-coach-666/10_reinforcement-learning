@@ -1,16 +1,4 @@
 """
-Deep Deterministic Policy Gradient (DDPG)
------------------------------------------
-An algorithm concurrently learns a Q-function and a policy.
-It uses off-policy data and the Bellman equation to learn the Q-function,
-and uses the Q-function to learn the policy.
-
-
-参考论文:
-Deterministic Policy Gradient Algorithms, Silver et al. 2014
-Continuous Control With Deep Reinforcement Learning, Lillicrap et al. 2016
-
-
 依赖包(python 3.9 环境, gym 包的版本不对可能会导致代码运行报错):
 tensorflow==2.11.0
 tensorflow-probability==0.19.0
@@ -35,10 +23,10 @@ import tensorflow as tf
 import tensorlayer as tl
 
 
-
 class DDPG(object):
-    def __init__(self, a_dim, s_dim, action_range, lr_a=0.001, lr_c=0.002, gamma=0.9,
-                 tau=0.01, var=2, memory_capacity=10000, batch_size=32):
+    def __init__(self, a_dim, s_dim, action_range, lr_a=0.001,
+                 lr_c=0.002, gamma=0.9, tau=0.01, var=2,
+                 memory_capacity=10000, batch_size=32):
         """
         action_range: 
         lr_a: learning rate for actor
@@ -56,36 +44,37 @@ class DDPG(object):
         self.batch_size = batch_size
         self.var = var
 
-        # memory 用于储存跑的数据的数组(保存 memory_capacity 个);
-        # s_dim * 2 + a_dim + 1 表示两个 state, 一个 action 和一个 reward
+        # jy: memory 用于储存跑的数据的数组 (保存 memory_capacity 个)
+        #     s_dim * 2 + a_dim + 1: 两个 state + 一个 action + 一个 reward
         self.memory = np.zeros((memory_capacity, s_dim * 2 + a_dim + 1), dtype=np.float32)
         self.pointer = 0
 
         self.W_init = tf.random_normal_initializer(mean=0, stddev=0.3)
         self.b_init = tf.constant_initializer(0.1)
 
-        # jy: 建立 actor 网络;
+        # jy: 建立 actor 网络
         self.actor = self.get_actor([None, s_dim])
-        # jy: 建立 critic 网络;
+        # jy: 建立 critic 网络
         self.critic = self.get_critic([None, s_dim], [None, a_dim])
         self.actor.train()
         self.critic.train()
 
-        # 建立 actor_target 网络, 并和 actor 参数一致, 不能训练
+        # jy: 建立 actor_target 网络, 参数和 actor 一致 (将 actor 网络
+        #     的参数复制到 actor_target 网络), 不能训练
         self.actor_target = self.get_actor([None, s_dim], name='_target')
-        # jy: 将 actor 网络的参数复制到 actor_target 网络;
         self.copy_para(self.actor, self.actor_target)
         self.actor_target.eval()
 
-        # 建立 critic_target 网络, 并和 actor 参数一致, 不能训练
-        self.critic_target = self.get_critic([None, s_dim], [None, a_dim], name='_target')
-        # jy: 将 critic 网络的参数复制到 critic_target 网络;
+        # jy: 建立 critic_target 网络, 参数和 critic 一致 (将 critic 网
+        #     络的参数复制到 critic_target 网络), 不能训练
+        self.critic_target = self.get_critic([None, s_dim], [None, a_dim],
+                                             name='_target')
         self.copy_para(self.critic, self.critic_target)
         self.critic_target.eval()
 
         self.R = tl.layers.Input([None, 1], tf.float32, 'r')
 
-        # 建立 ema, 滑动平均值 (soft replacement)
+        # jy: 建立 ema, 滑动平均值 (soft replacement)
         self.ema = tf.train.ExponentialMovingAverage(decay=1 - self.tau) 
 
         self.actor_opt = tf.optimizers.Adam(lr_a)
@@ -99,40 +88,49 @@ class DDPG(object):
         input_state_shape: state
         name: name
         """
-        # jy: 定义输入层;
+        # jy: 定义输入层
         inputs = tl.layers.Input(input_state_shape, name='A_input')
-        # jy: 定义输出层(含隐层)
-        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu, W_init=self.W_init, b_init=self.b_init, name='A_l1')(inputs)
-        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu, W_init=self.W_init, b_init=self.b_init, name='A_l2')(layer)
-        # 注意: 先用 tanh 把范围限定在 [-1, 1] 之间, 再进行映射
-        layer = tl.layers.Dense(n_units=self.a_dim, act=tf.nn.tanh, W_init=self.W_init, b_init=self.b_init, name='A_a')(layer)
+        # jy: 定义输出层 (含隐层)
+        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu,
+                                W_init=self.W_init, b_init=self.b_init,
+                                name='A_l1')(inputs)
+        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu,
+                                W_init=self.W_init, b_init=self.b_init,
+                                name='A_l2')(layer)
+        # jy: 先用 tanh 把范围限定在 [-1, 1] 之间, 再进行映射
+        layer = tl.layers.Dense(n_units=self.a_dim, act=tf.nn.tanh, 
+                                W_init=self.W_init, b_init=self.b_init,
+                                name='A_a')(layer)
         layer = tl.layers.Lambda(lambda x: np.array(self.action_range) * x)(layer)  
         return tl.models.Model(inputs=inputs, outputs=layer, name='Actor' + name)
 
     def get_critic(self, input_state_shape, input_action_shape, name=''):
         """
-        Build critic network (建立 Critic 网络, 输入 s 和 a, 输出 Q 值)
+        Build critic network (建立 Critic 网络): 输入 s 和 a, 输出 Q 值, 即 Q(s,a)
 
         input_state_shape: state
         input_action_shape: act
         name: name
-
-        返回 Q value, 即 Q(s,a)
         """
         # jy: 定义模型输入层
         s = tl.layers.Input(input_state_shape, name='C_s_input')
         a = tl.layers.Input(input_action_shape, name='C_a_input')
         # jy: 定义模型输出层 (含隐层)
         layer = tl.layers.Concat(1)([s, a])
-        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu, W_init=self.W_init, b_init=self.b_init, name='C_l1')(layer)
-        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu, W_init=self.W_init, b_init=self.b_init, name='C_l2')(layer)
-        layer = tl.layers.Dense(n_units=1, W_init=self.W_init, b_init=self.b_init, name='C_out')(layer)
+        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu,
+                                W_init=self.W_init, b_init=self.b_init,
+                                name='C_l1')(layer)
+        layer = tl.layers.Dense(n_units=64, act=tf.nn.relu,
+                                W_init=self.W_init, b_init=self.b_init,
+                                name='C_l2')(layer)
+        layer = tl.layers.Dense(n_units=1, W_init=self.W_init,
+                                b_init=self.b_init, name='C_out')(layer)
         return tl.models.Model(inputs=[s, a], outputs=layer, name='Critic' + name)
 
 
     def copy_para(self, from_model, to_model):
         """
-        Copy parameters for soft updating (更新参数, 只用于首次赋值, 之后就没用了)
+        Copy parameters for soft updating (更新参数, 只用于首次赋值)
         from_model: latest model
         to_model: target model
         """
@@ -144,13 +142,13 @@ class DDPG(object):
         """
         滑动平均更新: 更新 actor_target 和 critic_target 网络的参数;
         """
-        # 和之前的硬更新类似, 只是在更新赋值之前用一个 ema.average
-        # 获取要更新的参数(包括 actor 和 critic 的)
+        # jy: 和之前的硬更新类似, 只是在更新赋值之前用一个 ema.average
+        # jy: 获取要更新的参数 (包括 actor 和 critic 的相关参数)
         paras = self.actor.trainable_weights + self.critic.trainable_weights
-        # 主要是建立影子参数
+        # jy: 建立影子参数
         self.ema.apply(paras)   
         for i, j in zip(self.actor_target.trainable_weights + self.critic_target.trainable_weights, paras):
-            # 用滑动平均赋值
+            # jy: 用滑动平均赋值
             i.assign(self.ema.average(j))  
 
     def choose_action(self, s, greedy=False):
@@ -161,55 +159,58 @@ class DDPG(object):
         a = self.actor(np.array([s], dtype=np.float32))[0]
         if greedy:
             return a
-        # add randomness to action selection for exploration
-        # 为了能保持开发, 此处用另外一种方式增加探索: 以 a 为均值、var 为标准差建立正态分布,
-        # 再从正态分布采样出 a; 因为 a 是均值, 所以 a 的概率是最大的, 但 a 相对其他概率有多大
-        # 是靠 var 调整; 这里其实可以增加更新 var, 动态调整 a 的确定性, 然后进行裁剪
-        return np.clip(np.random.normal(a, self.var), -self.action_range, self.action_range)  
-
+        # jy: add randomness to action selection for exploration; 为了能
+        #     保持开发, 此处用另外一种方式增加探索: 以 a 为均值、var 为标准差建立
+        #     正态分布, 再从正态分布采样出 a; 因为 a 是均值, 所以 a 的概率是最大
+        #     的, 但 a 相对其他概率有多大是靠 var 调整; 这里其实可以增加更新 var,
+        #     动态调整 a 的确定性, 然后进行裁剪
+        return np.clip(np.random.normal(a, self.var),
+                       -self.action_range, self.action_range)  
 
     def learn(self):
         """
-        更新 critic 和 actor 网络; 
-        更新 actor_target 和 critic_target 网络(采用滑动平均更新的方式)
+        更新 critic 和 actor 网络;
+        更新 actor_target 和 critic_target 网络 (采用滑动平均更新的方式)
         """
-        # 随机 batch_size 个随机数(即 self.memory 中的数据的下标位置)
+        # jy: 随机 batch_size 个随机数 (即 self.memory 中的数据的下标位置)
         indices = np.random.choice(self.memory_capacity, size=self.batch_size) 
-        # 根据 indices, 选取数据 bt, 相当于随机
+        # jy: 根据随机得到的 indices 选取数据 bt
         bt = self.memory[indices, :] 
-        # 从 bt 获得数据 s, a, r, s_
+        # jy: 从 bt 获得数据 s, a, r, s_
         bs = bt[:, :self.s_dim]
         ba = bt[:, self.s_dim:self.s_dim + self.a_dim]  
         br = bt[:, -self.s_dim - 1:-self.s_dim]       
         bs_ = bt[:, -self.s_dim:]                       
 
-        # Critic 网络的更新: 和 DQN 很像, 只是 target 不再是 argmax, 而是用 critic_target 计算得到
-        # br + self.gamma * q_
+        # jy: Critic 网络的更新: 和 DQN 很像, 只是 target 不再是 argmax, 而
+        #     是基于 critic_target 计算得到
         with tf.GradientTape() as tape:
-            # jy: 基于 batch_size 个 state, 通过 actor_target 网络得到相应的 action;
+            # jy: 基于 batch_size 个 state, 通过 actor_target 网络得到相应的 action
             a_ = self.actor_target(bs_)
-            # jy: 基于 batch_size 个 state 和新 action, 通过 critic_target 网络得到新 action 对
-            #     应的 Q 值;
+            # jy: 基于 batch_size 个 state 和新 action, 通过 critic_target 网络得
+            #     到新 action 对应的 Q 值
             q_ = self.critic_target([bs_, a_])
             y = br + self.gamma * q_
 
-            # jy: 基于 batch_size 个 state 和原 action, 通过 critic 网络得到原 action 对应的 Q 值;
+            # jy: 基于 batch_size 个 state 和原 action, 通过 critic 网络得到
+            #     原 action 对应的 Q 值
             q = self.critic([bs, ba])
             # jy: 计算 td-error
             td_error = tf.losses.mean_squared_error(y, q)
-        # jy: 基于 td-error 求梯度, 随后更新 critic 网络;
+        # jy: 基于 td-error 求梯度, 随后更新 critic 网络
         c_grads = tape.gradient(td_error, self.critic.trainable_weights)
         self.critic_opt.apply_gradients(zip(c_grads, self.critic.trainable_weights))
 
-        # Actor: 目标就是获取最多 Q 值的 actor
         with tf.GradientTape() as tape:
-            # jy: 基于 batch_size 个 state, 通过 actor 网络得到相应的 action;
+            # jy: 基于 batch_size 个 state, 通过 actor 网络得到相应
+            #     的 action (目标就是获取最大 Q 值的 actor)
             a = self.actor(bs)
             # jy: 基于 batch_size 个 state 和新 a, 得到 batch_size 个 Q 值
             q = self.critic([bs, a])
-            # jy: 对多个 Q 值取平均 (注意: 负号表示目标是梯度上升, 即离目标会越来越远, 即越来越大)
+            # jy: 对多个 Q 值取平均 (注意: 负号表示目标是梯度上升, 即离目标会越
+            #     来越远, 即越来越大)
             a_loss = -tf.reduce_mean(q) 
-        # jy: 基于 loss 更新 actor 网络;
+        # jy: 基于 loss 更新 actor 网络
         a_grads = tape.gradient(a_loss, self.actor.trainable_weights)
         self.actor_opt.apply_gradients(zip(a_grads, self.actor.trainable_weights))
         # jy: 滑动平均更新: 更新 actor_target 和 critic_target 网络的参数
@@ -224,18 +225,19 @@ class DDPG(object):
         r: reward
         s_: next state
         """
-        # 整理 s, s_, 方便直接输入网络计算
+        # jy: 整理 s, s_, 方便直接输入网络计算
         s = s.astype(np.float32)
         s_ = s_.astype(np.float32)
 
-        # 把 s, a, [r], s_ 横向堆叠
+        # jy: 把 s, a, [r], s_ 横向堆叠
         transition = np.hstack((s, a, [r], s_))
 
-        # self.pointer 记录已经保存的数据总量
-        # index 记录当前数据在 self.memory 的位置; 一个循环中, 当 memory_capacity 满了以
-        # 后, index 就重新在最底开始, 即会将老数据覆盖(replace the old memory with new memory)
+        # jy: self.pointer 记录已经保存的数据总量, index 即当前数据
+        #     在 self.memory 的位置; 一个循环中, 当 memory_capacity
+        #     满了以后, index 就重新在最底开始, 即会将老数据覆盖 (replace
+        #     the old memory with new memory)
         index = self.pointer % self.memory_capacity 
-        # 把 transition (即 s, a, [r], s_) 存进去
+        # jy: 把 transition (即 s, a, [r], s_) 存进去
         self.memory[index, :] = transition
         self.pointer += 1
 
@@ -246,45 +248,52 @@ class DDPG(object):
         if not os.path.exists('model'):
             os.makedirs('model')
 
-        tl.files.save_npz(self.actor.trainable_weights, 'model/ddpg_actor.npz')
-        tl.files.save_npz(self.actor_target.trainable_weights, 'model/ddpg_actor_target.npz')
-        tl.files.save_npz(self.critic.trainable_weights, 'model/ddpg_critic.npz')
-        tl.files.save_npz(self.critic_target.trainable_weights, 'model/ddpg_critic_target.npz')
+        tl.files.save_npz(self.actor.trainable_weights,
+                          'model/ddpg_actor.npz')
+        tl.files.save_npz(self.actor_target.trainable_weights,
+                          'model/ddpg_actor_target.npz')
+        tl.files.save_npz(self.critic.trainable_weights,
+                          'model/ddpg_critic.npz')
+        tl.files.save_npz(self.critic_target.trainable_weights,
+                          'model/ddpg_critic_target.npz')
 
     def load_ckpt(self):
         """
         load trained weights
         """
-        tl.files.load_and_assign_npz('model/ddpg_actor.npz', network=self.actor)
-        tl.files.load_and_assign_npz('model/ddpg_actor_target.npz', network=self.actor_target)
-        tl.files.load_and_assign_npz('model/ddpg_critic.npz', network=self.critic)
-        tl.files.load_and_assign_npz('model/ddpg_critic_target.npz', network=self.critic_target)
-
+        tl.files.load_and_assign_npz('model/ddpg_actor.npz',
+                                     network=self.actor)
+        tl.files.load_and_assign_npz('model/ddpg_actor_target.npz',
+                                     network=self.actor_target)
+        tl.files.load_and_assign_npz('model/ddpg_critic.npz',
+                                     network=self.critic)
+        tl.files.load_and_assign_npz('model/ddpg_critic_target.npz',
+                                     network=self.critic_target)
 
 
 def run(mode="train"):
     ENV_NAME = 'Pendulum-v1'
     RANDOMSEED = 1
-    # total number of episodes for training
+    # jy: total number of episodes for training
     MAX_EPISODES = 200
-    # total number of steps for each episode
+    # jy: total number of steps for each episode
     MAX_EP_STEPS = 200
-    # test the model per episodes
+    # jy: test the model per episodes
     TEST_PER_EPISODES = 10
-    # control exploration
+    # jy: control exploration
     var = 3
     memory_capacity = 10000
 
-    # 初始化环境
+    # jy: 初始化环境
     env = gym.make(ENV_NAME)
     #env = env.unwrapped
 
-    # reproducible, 设置随机种子 (使得能够重现)
+    # jy: 设置随机种子 (使得能够重现)
     env.seed(RANDOMSEED)
     np.random.seed(RANDOMSEED)
     tf.random.set_seed(RANDOMSEED)
 
-    # 定义状态空间, 动作空间, 动作幅度范围
+    # jy: 定义状态空间, 动作空间, 动作幅度范围
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
     action_range = env.action_space.high
@@ -292,38 +301,38 @@ def run(mode="train"):
     print('s_dim == %s' % s_dim)
     print('a_dim == %s' % a_dim)
 
-    # 初始化 DDPG 类;
+    # jy: 初始化 DDPG 类
     ddpg = DDPG(a_dim, s_dim, action_range)
 
-    # 训练部分
+    # jy: 训练部分
     if mode == "train": 
-        # 记录每个 EP 的 reward, 统计变化, 主要要用于后续画图;
+        # jy: 记录每个 EP 的 reward, 统计变化 (用于后续画图)
         reward_buffer = []
-        # 统计时间
+        # jy: 统计时间
         t0 = time.time() 
         for i in range(MAX_EPISODES):
             t1 = time.time()
             s = env.reset()
-            # 记录当前 EP 的 reward
+            # jy: 记录当前 EP 的 reward
             ep_reward = 0     
             for j in range(MAX_EP_STEPS):
-                # Add exploration noise (直接用 actor 估算出 a 动作)
+                # jy: Add exploration noise (直接用 actor 估算出 a 动作)
                 a = ddpg.choose_action(s)       
 
-                # 与环境进行互动
+                # jy: 与环境进行互动
                 s_, r, done, info = env.step(a)
 
-                # 保存 (s, a, r, s_)
+                # jy: 保存 (s, a, r, s_)
                 ddpg.store_transition(s, a, r / 10, s_)
 
-                # 数据满了就可以开始学习
+                # jy: 数据满了就可以开始学习
                 if ddpg.pointer > memory_capacity:
-                    # jy: 学习并更新 4 个网络的参数;
+                    # jy: 学习并更新 4 个网络的参数
                     ddpg.learn()
 
-                # 输出数据记录
+                # jy: 输出数据记录
                 s = s_  
-                # 记录当前 EP 的总 reward
+                # jy: 记录当前 EP 的总 reward
                 ep_reward += r  
                 if j == MAX_EP_STEPS - 1:
                     print('\rEpisode: {}/{}  | Episode Reward: {:.4f}  | Running Time: {:.4f}'.format(
@@ -332,11 +341,11 @@ def run(mode="train"):
             if i and not i % TEST_PER_EPISODES:
                 t1 = time.time()
                 s = env.reset()
-                # jy: ep_reward 统计 reward, 主要用于打印输出;
+                # jy: ep_reward 统计 reward, 主要用于打印输出
                 ep_reward = 0
                 for j in range(MAX_EP_STEPS):
 
-                    # 注意: 测试时不再需要用正态分布, 直接一个 a 就可以
+                    # jy: 注意: 测试时不再需要用正态分布获取 a, 直接一个 a 就可以
                     a = ddpg.choose_action(s)  
                     s_, r, done, info = env.step(a)
 
@@ -381,4 +390,3 @@ def run(mode="train"):
 if __name__ == '__main__':
     mode = "train"
     run(mode)
-
